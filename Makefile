@@ -8,4 +8,4 @@ clean:
 .IGNORE: clean
 
 a.out:	main.cpp
-	g++ --std=c++11 -O3 $^ -o $@
+	g++ --std=c++11 -lm -O3 $^ -o $@
