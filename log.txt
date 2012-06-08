@@ -1,0 +1,27 @@
+my very own scoreboard:
+
+        random benchmark            0.0
+        top 10 benchmark            0.00004
+        bug-fixed bfs benchmark     0.09278
+        my submission 1             0.14610
+        missing reverse edges       0.61525
+        my submission 2             0.68837
+        top score (quidity)         0.69172
+
+
+submission 1:
+
+    did depth 3 bfs to generate local subdomains
+    used 0.1 restart parameter for random walk with restart
+    solely used given directed graph, didnt do anything tricky for the reverse edges
+
+    got a pretty bad score, although better than the two initial benchmarks
+
+
+submission 2:
+
+    extended code to walk along reverse edges for both bfs and random walk
+    increased restart prob from 0.1 to 0.3 (intution : since i truncate
+    domain at depth 3 with bfs there are probably some strong edge effects
+    at the artificial cuts - using higher restart prob should make these
+    weaker).
