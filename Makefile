@@ -1,3 +1,6 @@
+CPPFLAGS := -Wall -pedantic -O3
+
+
 test:	a.out
 	./a.out
 .IGNORE: test
@@ -8,4 +11,4 @@ clean:
 .IGNORE: clean
 
 a.out:	main.cpp
-	g++ --std=c++11 -lm -O3 $^ -o $@
+	g++ --std=c++11 -lm $(CPPFLAGS) $^ -o $@
