@@ -155,7 +155,7 @@ struct CompressedIndex {
     map<int, int> inflate;
 };
 
-CompressedIndex compress_indices(const set<int> & indices) {
+CompressedIndex make_compressed_index(const set<int> & indices) {
     CompressedIndex result;
     set<int>::const_iterator i;
     int j = 0;
@@ -317,9 +317,8 @@ set<int> make_exclusion_set(const Graph & graph, int src) {
     return result;
 }
 
-vector<int> make_predictions(const Graph & graph, int src, const vector<double> & p_stationary) {
+vector<int> make_predictions(const set<int> & exclude, const vector<double> & p_stationary) {
     vector<int> order = argsort(p_stationary);
-    set<int> exclude = make_exclusion_set(graph, src);
     vector<int>::const_reverse_iterator i;
 
     vector<int> predictions;
@@ -347,6 +346,30 @@ vector<int> inflate_indices(const CompressedIndex & ci, const vector<int> & a) {
     }
     return result;
 }
+
+vector<int> compress_indices(const CompressedIndex & ci, const vector<int> & a) {
+    vector<int> result;
+    vector<int>::const_iterator i;
+    for (i = a.begin(); i != a.end(); ++i) {
+        map<int, int>::const_iterator j = ci.compress.find(*i);
+        assert(j != ci.compress.end());
+        result.push_back(j->second);
+    }
+    return result;
+}
+
+set<int> compress_indices_set(const CompressedIndex & ci, const set<int> & a) {
+    set<int> result;
+    set<int>::const_iterator i;
+    for (i = a.begin(); i != a.end(); ++i) {
+        map<int, int>::const_iterator j = ci.compress.find(*i);
+        assert(j != ci.compress.end());
+        result.insert(j->second);
+    }
+    return result;
+}
+
+
 
 vector<Edge> make_missing_reverse_edges(const vector<Edge> & edges, const Graph & graph) {
     vector<Edge> new_edges;
@@ -421,6 +444,7 @@ int main(int narg, char **argv) {
     int n = test_nodes.size();
 
     FILE *f_out = fopen("predictions.txt", "w");
+    fprintf(f_out, "source_node,destination_nodes\n");
 
     for (src = test_nodes.begin(); src != test_nodes.end(); ++src) {
         set<int> subset = bfs(ext_graph, *src, depth);
@@ -428,7 +452,7 @@ int main(int narg, char **argv) {
 
         // 1. restrict graph to subset
         //  -- 1.1. define indexing scheme to give nodes in subset small dense indices
-        CompressedIndex ci = compress_indices(subset);
+        CompressedIndex ci = make_compressed_index(subset);
         //  -- 1.2. make vector of edges as function of graph, subset and compressed indices
         vector<Edge> sub_edges = restrict_graph(ext_graph, subset, ci);
         printf("\t%d nodes, %d edges\n", (int)subset.size(), (int)sub_edges.size());
@@ -438,24 +462,30 @@ int main(int narg, char **argv) {
         // 2. perform random walk with reset on the restricted graph
         vector<double> p_0 = make_initial_vector(ci, *src);
 
-        double restart_prob = 0.1;
+        double restart_prob = 0.3;
         double eps = 1.0e-6;
         vector<double> p_stationary = random_walk_with_restart(subgraph, p_0, restart_prob, eps);
 
-        // 3. find the top 1- nodes that aren't the source or direct neighbours
-        vector<int> compressed_predictions = make_predictions(subgraph,
-            ci.compress.find(*src)->second, p_stationary);
-        //  -- 3.1. need to invert indexing scheme
+        // 3. find the top 10- nodes that aren't the source or direct neighbours
+
+        // n.b. make exclusion set using graph, not ext_graph, so that we don't exclude
+        // nodes that are only neighbours of src via artificial reverse edges. these
+        // are the kind of nodes that we probably most likely want to include!
+        set<int> base_unextended_exclude = make_exclusion_set(graph, *src);
+        // n.b. translate excluded nodes to compressed indexing scheme
+        set<int> exclude = compress_indices_set(ci, base_unextended_exclude);
+        // make predictions
+        vector<int> compressed_predictions = make_predictions(exclude, p_stationary);
+        // then convert back from indexing scheme
         vector<int> predictions =  inflate_indices(ci, compressed_predictions);
+
         // 4. spit output somewhere. order of output matters.
-        printf("\tP %d : ", *src);
+        // write predictions to file in expected format
+        // source_node,dest_nodes
+        // where dest_nodes are separated by spaces
+        fprintf(f_out, "%d,", (*src) + 1);
         for(int k = 0; (size_t)k < predictions.size(); ++k) {
-            printf("%d ", predictions[k]);
-        }
-        printf("\n");
-        fprintf(f_out, "P %d : ", *src);
-        for(int k = 0; (size_t)k < predictions.size(); ++k) {
-            fprintf(f_out, "%d ", predictions[k]);
+            fprintf(f_out, "%d ", predictions[k] + 1);
         }
         fprintf(f_out, "\n");
         if (ticker++ % 1000 == 0) {
