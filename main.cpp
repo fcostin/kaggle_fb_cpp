@@ -32,6 +32,18 @@ void init_signal_handler() {
     sigaction(SIGINT, &sig_interrupt_handler, NULL);
 }
 
+// global data
+
+static double FRACTION_LOOKUP[2048];
+
+void init_fraction_lookup() {
+    for (int i = 0; i < 2048; ++i) {
+        FRACTION_LOOKUP[i] = 1.0 / ((double) i);
+    }
+}
+
+
+
 
 
 struct Edge {
@@ -232,6 +244,10 @@ vector<Edge> restrict_graph(int restricted_size,
             int node_j = graph.value[j];
             int k = index.compress[node_j];
             // truncate edge if destination node not in subgraph
+            // n.b. we may get many edges from a given node u
+            // to the error node from this. this may or may not
+            // lead to better accuracy! it certainly makes
+            // the matvec operations a little more expensive.
             if (k == -1) {
                 result.push_back(Edge(i, error_node_k));
                 continue;
@@ -261,10 +277,9 @@ void graph_matvec(const Graph & graph, const vector<double> & x,
         // distribute mass uniformly from node i to all neighbouring nodes k
         int j_beg = graph.begin[i];
         int j_end = graph.end[i];
-        double mass = x[i] / (double)(j_end - j_beg);
-        for (int j = j_beg; j != j_end; ++j) {
-            int k = graph.value[j];
-            result[k] += mass;
+        double mass = x[i] * FRACTION_LOOKUP[j_end - j_beg];
+        for (int j = j_beg; j < j_end; ++j) {
+            result[graph.value[j]] += mass;
         }
     }
 }
@@ -458,10 +473,24 @@ vector<Edge> extend_with_reverse_edges(const vector<Edge> & edges, const Graph &
     return result;
 }
 
+void print_graph_info(const Graph & graph) {
+    int n = (int)graph.begin.size();
+    int sup = 0;
+    for (int i = 0; i < n; ++i) {
+        int j_beg = graph.begin[i];
+        int j_end = graph.end[i];
+        int n_neighbours = j_end - j_beg;
+        sup = (n_neighbours > sup) ? n_neighbours : sup;
+    }
+    printf("max num neighbours : %d\n", sup);
+}
+
 
 int main() {
 
     init_signal_handler();
+
+    init_fraction_lookup();
 
     const char * csv_file_name = "../train.csv";
     printf("loading edges from \"%s\"\n", csv_file_name);
@@ -486,6 +515,8 @@ int main() {
     // n.b. adding edges does not change the nodes, so
     // the max node is still m.
     Graph ext_graph = make_graph(m + 1, ext_edges);
+
+    print_graph_info(ext_graph);
 
     const char * node_file_name = "../test.csv";
     printf("loading nodes from \"%s\"\n", node_file_name);
