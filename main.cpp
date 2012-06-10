@@ -194,28 +194,22 @@ CompressedIndex make_compressed_index(const set<int> & indices) {
     return result;
 }
 
-vector<Edge> restrict_graph(const Graph & graph, const set<int> & subset,
-        const CompressedIndex & index) {
+vector<Edge> restrict_graph(const Graph & graph, const CompressedIndex & index) {
 
     vector<Edge> result;
     int n = (int)index.inflate.size();
     for (int i = 0; i < n; ++i) {
-        int u = index.inflate.find(i)->second;
-        if (subset.find(u) == subset.end()) {
-            // XXX this code should never be executed, since
-            // u in image of index.inflate <=> u in subset
-            continue;
-        }
-        int v_beg = graph.begin[u];
-        int v_end = graph.end[u];
-        for (int v = v_beg; v != v_end; ++v) {
-            // XXX this first test is redundant, since
-            // w in subset <=> w in index.compress
-            if (subset.find(graph.value[v]) == subset.end()) {
+        int node_i = index.inflate.find(i)->second;
+        int j_beg = graph.begin[node_i];
+        int j_end = graph.end[node_i];
+        for (int j = j_beg; j != j_end; ++j) {
+            int node_j = graph.value[j];
+            map<int, int>::const_iterator k;
+            k = index.compress.find(node_j);
+            if (k == index.compress.end()) {
                 continue;
             }
-            int j = index.compress.find(graph.value[v])->second;
-            result.push_back(Edge(i, j));
+            result.push_back(Edge(i, k->second));
         }
     }
     return result;
@@ -493,7 +487,7 @@ int main() {
         //  -- 1.1. define indexing scheme to give nodes in subset small dense indices
         CompressedIndex ci = make_compressed_index(subset);
         //  -- 1.2. make vector of edges as function of graph, subset and compressed indices
-        vector<Edge> sub_edges = restrict_graph(ext_graph, subset, ci);
+        vector<Edge> sub_edges = restrict_graph(ext_graph, ci);
         printf("\t%d nodes, %d edges\n", (int)subset.size(), (int)sub_edges.size());
         //  -- 1.3. make subgraph from transformed edges
         Graph subgraph = make_graph((int)ci.inflate.size(), sub_edges);
