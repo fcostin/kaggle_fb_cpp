@@ -202,11 +202,15 @@ vector<Edge> restrict_graph(const Graph & graph, const set<int> & subset,
     for (int i = 0; i < n; ++i) {
         int u = index.inflate.find(i)->second;
         if (subset.find(u) == subset.end()) {
+            // XXX this code should never be executed, since
+            // u in image of index.inflate <=> u in subset
             continue;
         }
         int v_beg = graph.begin[u];
         int v_end = graph.end[u];
         for (int v = v_beg; v != v_end; ++v) {
+            // XXX this first test is redundant, since
+            // w in subset <=> w in index.compress
             if (subset.find(graph.value[v]) == subset.end()) {
                 continue;
             }
