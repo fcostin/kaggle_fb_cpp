@@ -6,3 +6,5 @@ a.out
 *.7z
 *.prof
 *.svg
+*.heap
+*.s
