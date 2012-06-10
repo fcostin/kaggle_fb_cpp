@@ -177,75 +177,89 @@ set<int> bfs(const Graph & graph, int source, int depth) {
 }
 
 struct CompressedIndex {
-    map<int, int> compress;
-    map<int, int> inflate;
+    vector<int> compress;
+    vector<int> inflate;
 };
 
-CompressedIndex make_compressed_index(const set<int> & indices) {
+CompressedIndex make_compressed_index(size_t size) {
     CompressedIndex result;
-    set<int>::const_iterator i;
-    int j = 0;
-    for(i = indices.begin(); i != indices.end(); ++i) {
-        result.compress.insert(make_pair(*i, j));
-        result.inflate.insert(make_pair(j, *i));
-        ++j;
-    }
-    assert(result.compress.size() == result.inflate.size());
+    // fill with -1s to mark missing items
+    result.compress.resize(size + 1, -1);
+    result.inflate.resize(size + 1, -1);
     return result;
 }
 
-vector<Edge> restrict_graph(const Graph & graph, const CompressedIndex & index) {
+void init_compressed_index(CompressedIndex & ci, const set<int> & indices) {
+    set<int>::const_iterator i;
+    int j = 0;
+    for(i = indices.begin(); i != indices.end(); ++i) {
+        ci.compress[*i] = j;
+        ci.inflate[j] = *i;
+        ++j;
+    }
+}
+
+void clear_compressed_index(CompressedIndex & ci, const set<int> & indices) {
+    set<int>::const_iterator i;
+    int j = 0;
+    for(i = indices.begin(); i != indices.end(); ++i) {
+        ci.compress[*i] = -1;
+        ci.inflate[j] = -1;
+        ++j;
+    }
+}
+
+
+
+vector<Edge> restrict_graph(int restricted_size,
+        const Graph & graph,
+        const CompressedIndex & index) {
 
     vector<Edge> result;
-    int n = (int)index.inflate.size();
-    for (int i = 0; i < n; ++i) {
-        int node_i = index.inflate.find(i)->second;
+    for (int i = 0; i < restricted_size; ++i) {
+        int node_i = index.inflate[i];
+        if (node_i == -1) {
+            continue;
+        }
         int j_beg = graph.begin[node_i];
         int j_end = graph.end[node_i];
         for (int j = j_beg; j != j_end; ++j) {
             int node_j = graph.value[j];
-            map<int, int>::const_iterator k;
-            k = index.compress.find(node_j);
-            if (k == index.compress.end()) {
+            int k = index.compress[node_j];
+            if (k == -1) { // not in index
                 continue;
             }
-            result.push_back(Edge(i, k->second));
+            result.push_back(Edge(i, k));
         }
     }
     return result;
 }
 
-vector<double> make_initial_vector(CompressedIndex & index, int source_node) {
+vector<double> make_initial_vector(const set<int> & subset, const CompressedIndex & index, int source_node) {
     vector<double> v;
-    v.resize(index.compress.size(), 0.0);
-    map<int, int>::const_iterator i;
-    i = index.compress.find(source_node);
-    assert(i != index.compress.end());
-    v[i->second] = 1.0;
+    v.resize(subset.size(), 0.0);
+    int i = index.compress[source_node];
+    assert(i >= 0);
+    v[i] = 1.0;
     return v;
 }
 
-vector<double> graph_matvec(const Graph & graph, const vector<double> & x) {
+void graph_matvec(const Graph & graph, const vector<double> & x,
+        vector<double> & result) {
     int n = min((int)x.size(), (int)graph.begin.size());
-    vector<double> result;
-    result.resize(x.size(), 0.0);
     for (int i = 0; i < n; ++i) {
-        if (abs(x[i]) < 1.0e-16) {
-            continue;
-        }
-        int j_beg = graph.begin[i];
-        int j_end = graph.end[i];
-        if (j_beg == j_end) {
+        if (x[i] < 1.0e-16) {
             continue;
         }
         // distribute mass uniformly from node i to all neighbouring nodes k
+        int j_beg = graph.begin[i];
+        int j_end = graph.end[i];
         double mass = x[i] / (double)(j_end - j_beg);
         for (int j = j_beg; j != j_end; ++j) {
             int k = graph.value[j];
             result[k] += mass;
         }
     }
-    return result;
 }
 
 vector<double> axpby(double a, const vector<double> & x, double b, const vector<double> & y) {
@@ -287,15 +301,17 @@ vector<double> random_walk_with_restart(const Graph & graph, const vector<double
     vector<double> u, au, u_next;
 
     // initialise u with a copy of v
-    u.resize(v.size());
+    u.resize(v.size(), 0.0);
     for(int i = 0; (size_t)i < v.size(); ++i) {
         u[i] = v[i];
     }
+    au.resize(v.size());
 
     int itercount = 0;
     double error;
     do {
-        au = graph_matvec(graph, u);
+        fill(au.begin(), au.end(), 0.0);
+        graph_matvec(graph, u, au);
         u_next = axpby((1.0-c), au, c, v);
         swap(u, u_next);
         error = metric_l1(u, u_next);
@@ -364,9 +380,9 @@ vector<int> inflate_indices(const CompressedIndex & ci, const vector<int> & a) {
     vector<int> result;
     vector<int>::const_iterator i;
     for (i = a.begin(); i != a.end(); ++i) {
-        map<int, int>::const_iterator j = ci.inflate.find(*i);
-        assert(j != ci.inflate.end());
-        result.push_back(j->second);
+        int j = ci.inflate[*i];
+        assert(j >= 0);
+        result.push_back(j);
     }
     return result;
 }
@@ -375,9 +391,9 @@ vector<int> compress_indices(const CompressedIndex & ci, const vector<int> & a) 
     vector<int> result;
     vector<int>::const_iterator i;
     for (i = a.begin(); i != a.end(); ++i) {
-        map<int, int>::const_iterator j = ci.compress.find(*i);
-        assert(j != ci.compress.end());
-        result.push_back(j->second);
+        int j = ci.compress[*i];
+        assert(j >= 0);
+        result.push_back(j);
     }
     return result;
 }
@@ -386,9 +402,9 @@ set<int> compress_indices_set(const CompressedIndex & ci, const set<int> & a) {
     set<int> result;
     set<int>::const_iterator i;
     for (i = a.begin(); i != a.end(); ++i) {
-        map<int, int>::const_iterator j = ci.compress.find(*i);
-        assert(j != ci.compress.end());
-        result.insert(j->second);
+        int j = ci.compress[*i];
+        assert(j >= 0);
+        result.insert(j);
     }
     return result;
 }
@@ -470,6 +486,10 @@ int main() {
     int ticker = 0;
     int n = (int)test_nodes.size();
 
+    // allocate compressed index (implemented as pair of huge
+    // lookup tables) to hold reindexing scheme
+    CompressedIndex ci = make_compressed_index(m + 1);
+
     FILE *f_out = fopen("predictions.csv", "w");
     fprintf(f_out, "source_node,destination_nodes\n");
 
@@ -485,15 +505,15 @@ int main() {
 
         // 1. restrict graph to subset
         //  -- 1.1. define indexing scheme to give nodes in subset small dense indices
-        CompressedIndex ci = make_compressed_index(subset);
+        init_compressed_index(ci, subset);
         //  -- 1.2. make vector of edges as function of graph, subset and compressed indices
-        vector<Edge> sub_edges = restrict_graph(ext_graph, ci);
+        vector<Edge> sub_edges = restrict_graph((int)subset.size(), ext_graph, ci);
         printf("\t%d nodes, %d edges\n", (int)subset.size(), (int)sub_edges.size());
         //  -- 1.3. make subgraph from transformed edges
-        Graph subgraph = make_graph((int)ci.inflate.size(), sub_edges);
+        Graph subgraph = make_graph((int)subset.size(), sub_edges);
 
         // 2. perform random walk with reset on the restricted graph
-        vector<double> p_0 = make_initial_vector(ci, *src);
+        vector<double> p_0 = make_initial_vector(subset, ci, *src);
 
         double restart_prob = 0.3;
         double eps = 1.0e-6;
@@ -512,6 +532,8 @@ int main() {
         // then convert back from indexing scheme
         vector<int> predictions =  inflate_indices(ci, compressed_predictions);
 
+
+
         // 4. spit output somewhere. order of output matters.
         // write predictions to file in expected format
         // source_node,dest_nodes
@@ -524,6 +546,9 @@ int main() {
         if (ticker++ % 1000 == 0) {
             fflush(f_out);
         }
+
+        // 5. clean up
+        clear_compressed_index(ci, subset);
     }
     fclose(f_out);
     printf("\tok\n");
