@@ -316,7 +316,6 @@ vector<double> random_walk_with_restart(const Graph & graph, const vector<double
         swap(u, u_next);
         error = metric_l1(u, u_next);
         ++itercount;
-        // printf("\t\terror = %e\n", error);
     } while(error > eps);
     printf("\tcvgc took %d iters\n", itercount);
 
