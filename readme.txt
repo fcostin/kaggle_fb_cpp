@@ -10,3 +10,12 @@ one way to adjust implementation to incorporate this:
     3. but the make_predictions function needs to be fixed to not
        exclude nodes that are only neighbours of the source by these
        artificial added edges
+
+=========
+profiling
+=========
+
+run with ./profile.sh
+
+view with
+    pprof --web ./a.out ./a.prof

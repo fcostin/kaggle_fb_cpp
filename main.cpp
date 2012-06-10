@@ -1,12 +1,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <cmath>
+#include <signal.h>
+
 
 #include <vector>
 #include <set>
 #include <map>
 #include <algorithm>
 using namespace std;
+
+// signal handling
+
+bool abort_flag;
+
+void main_sa_handler(int s) {
+    fprintf(stderr, "\nCaught signal %d, aborting...\n", s);
+    abort_flag = true;
+}
+
+void init_signal_handler() {
+    // Set up signal handling before we try doing anything that will
+    // take a long time. We want to intercept any SIGINT and then
+    // set abort_flag to true.
+    abort_flag = false;
+    struct sigaction sig_interrupt_handler;
+    sig_interrupt_handler.sa_handler = main_sa_handler;
+    sigemptyset(&sig_interrupt_handler.sa_mask);
+    sig_interrupt_handler.sa_flags = 0;
+    sigaction(SIGINT, &sig_interrupt_handler, NULL);
+}
+
+
 
 struct Edge {
     int u, v;
@@ -31,7 +57,7 @@ vector<Edge> load_edges(const char *csv_file_name) {
     bool reading = true;
     vector<Edge> edges;
     while (reading) {
-        int n_read = getline(&line, &line_size, f);
+        int n_read = (int)getline(&line, &line_size, f);
         reading = n_read > 0;
         if (reading) {
             int u, v;
@@ -55,7 +81,7 @@ vector<int> load_nodes(const char *csv_file_name) {
     bool reading = true;
     vector<int> nodes;
     while (reading) {
-        int n_read = getline(&line, &line_size, f);
+        int n_read = (int)getline(&line, &line_size, f);
         reading = n_read > 0;
         if (reading) {
             int u;
@@ -172,7 +198,7 @@ vector<Edge> restrict_graph(const Graph & graph, const set<int> & subset,
         const CompressedIndex & index) {
 
     vector<Edge> result;
-    int n = index.inflate.size();
+    int n = (int)index.inflate.size();
     for (int i = 0; i < n; ++i) {
         int u = index.inflate.find(i)->second;
         if (subset.find(u) == subset.end()) {
@@ -202,11 +228,11 @@ vector<double> make_initial_vector(CompressedIndex & index, int source_node) {
 }
 
 vector<double> graph_matvec(const Graph & graph, const vector<double> & x) {
-    int n = min(x.size(), graph.begin.size());
+    int n = min((int)x.size(), (int)graph.begin.size());
     vector<double> result;
     result.resize(x.size(), 0.0);
     for (int i = 0; i < n; ++i) {
-        if (fabs(x[i]) < 1.0e-16) {
+        if (abs(x[i]) < 1.0e-16) {
             continue;
         }
         int j_beg = graph.begin[i];
@@ -225,11 +251,11 @@ vector<double> graph_matvec(const Graph & graph, const vector<double> & x) {
 }
 
 vector<double> axpby(double a, const vector<double> & x, double b, const vector<double> & y) {
-    int n = x.size();
-    assert((size_t)n == y.size());
+    vector<double>::size_type n = x.size();
+    assert(n == y.size());
     vector<double> c;
     c.resize(n);
-    for (int i = 0; i < n; ++i) {
+    for (vector<double>::size_type i = 0; i < n; ++i) {
         c[i] = a * x[i] + b * y[i];
     }
     return c;
@@ -239,7 +265,7 @@ double norm_l1(vector<double> & x) {
     double result = 0.0;
     vector<double>::const_iterator i;
     for(i = x.begin(); i != x.end(); ++i) {
-        result += fabs(*i);
+        result += abs(*i);
     }
     return result;
 }
@@ -247,9 +273,9 @@ double norm_l1(vector<double> & x) {
 double metric_l1(vector<double> & x, vector<double> & y) {
     double result = 0.0;
     assert(x.size() == y.size());
-    int n = x.size();
-    for (int i = 0; i < n; ++i) {
-        result += fabs(x[i] - y[i]);
+    vector<double>::size_type n = x.size();
+    for (vector<double>::size_type i = 0; i < n; ++i) {
+        result += abs(x[i] - y[i]);
     }
     return result;
 }
@@ -412,7 +438,10 @@ vector<Edge> extend_with_reverse_edges(const vector<Edge> & edges, const Graph &
 }
 
 
-int main(int narg, char **argv) {
+int main() {
+
+    init_signal_handler();
+
     const char * csv_file_name = "../train.csv";
     printf("loading edges from \"%s\"\n", csv_file_name);
     vector<Edge> edges = load_edges(csv_file_name);
@@ -441,12 +470,18 @@ int main(int narg, char **argv) {
     vector<int>::const_iterator src;
     int depth = 3;
     int ticker = 0;
-    int n = test_nodes.size();
+    int n = (int)test_nodes.size();
 
     FILE *f_out = fopen("predictions.txt", "w");
     fprintf(f_out, "source_node,destination_nodes\n");
 
     for (src = test_nodes.begin(); src != test_nodes.end(); ++src) {
+
+        if (abort_flag) {
+            fflush(f_out);
+            break;
+        }
+
         set<int> subset = bfs(ext_graph, *src, depth);
         printf("bfs [%d/%d]\n", ticker, n);
 
@@ -457,7 +492,7 @@ int main(int narg, char **argv) {
         vector<Edge> sub_edges = restrict_graph(ext_graph, subset, ci);
         printf("\t%d nodes, %d edges\n", (int)subset.size(), (int)sub_edges.size());
         //  -- 1.3. make subgraph from transformed edges
-        Graph subgraph = make_graph(ci.inflate.size(), sub_edges);
+        Graph subgraph = make_graph((int)ci.inflate.size(), sub_edges);
 
         // 2. perform random walk with reset on the restricted graph
         vector<double> p_0 = make_initial_vector(ci, *src);
