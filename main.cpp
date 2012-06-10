@@ -213,7 +213,12 @@ void clear_compressed_index(CompressedIndex & ci, const set<int> & indices) {
 
 vector<Edge> restrict_graph(int restricted_size,
         const Graph & graph,
+        int error_node,
         const CompressedIndex & index) {
+
+    assert(error_node >= 0);
+    int error_node_k = index.compress[error_node];
+    assert(error_node_k >= 0);
 
     vector<Edge> result;
     for (int i = 0; i < restricted_size; ++i) {
@@ -226,7 +231,9 @@ vector<Edge> restrict_graph(int restricted_size,
         for (int j = j_beg; j != j_end; ++j) {
             int node_j = graph.value[j];
             int k = index.compress[node_j];
-            if (k == -1) { // not in index
+            // truncate edge if destination node not in subgraph
+            if (k == -1) {
+                result.push_back(Edge(i, error_node_k));
                 continue;
             }
             result.push_back(Edge(i, k));
@@ -340,9 +347,10 @@ vector<int> argsort(const vector<double> & a) {
     return order;
 }
 
-set<int> make_exclusion_set(const Graph & graph, int src) {
+set<int> make_exclusion_set(const Graph & graph, int src, int error_node) {
     set<int> result;
     result.insert(src);
+    result.insert(error_node);
     assert(0 <= src);
     // n.b. graph may not be full size if the nodes
     // with high indices have no outgoing edges.
@@ -462,6 +470,10 @@ int main() {
 
     int m = max_node(edges);
     printf("max node is %d\n", m);
+    // artificially increase the number of nodes by 1 to make room for
+    // a sink node to track trunctation error
+    int error_node = m;
+    m += 1;
 
     printf("building graph\n");
     Graph graph = make_graph(m + 1, edges);
@@ -499,14 +511,17 @@ int main() {
             break;
         }
 
-        set<int> subset = bfs(ext_graph, *src, depth);
         printf("bfs [%d/%d]\n", ticker, n);
+
+        set<int> subset = bfs(ext_graph, *src, depth);
+        // add error node to track truncation error
+        subset.insert(error_node);
 
         // 1. restrict graph to subset
         //  -- 1.1. define indexing scheme to give nodes in subset small dense indices
         init_compressed_index(ci, subset);
         //  -- 1.2. make vector of edges as function of graph, subset and compressed indices
-        vector<Edge> sub_edges = restrict_graph((int)subset.size(), ext_graph, ci);
+        vector<Edge> sub_edges = restrict_graph((int)subset.size(), ext_graph, error_node, ci);
         printf("\t%d nodes, %d edges\n", (int)subset.size(), (int)sub_edges.size());
         //  -- 1.3. make subgraph from transformed edges
         Graph subgraph = make_graph((int)subset.size(), sub_edges);
@@ -518,12 +533,15 @@ int main() {
         double eps = 1.0e-6;
         vector<double> p_stationary = random_walk_with_restart(subgraph, p_0, restart_prob, eps);
 
+        double mass_error = p_stationary[ci.compress[error_node]];
+        printf("\tmass_error %3.1f %%\n", mass_error * 100.0);
+
         // 3. find the top 10- nodes that aren't the source or direct neighbours
 
         // n.b. make exclusion set using graph, not ext_graph, so that we don't exclude
         // nodes that are only neighbours of src via artificial reverse edges. these
         // are the kind of nodes that we probably most likely want to include!
-        set<int> base_unextended_exclude = make_exclusion_set(graph, *src);
+        set<int> base_unextended_exclude = make_exclusion_set(graph, *src, error_node);
         // n.b. translate excluded nodes to compressed indexing scheme
         set<int> exclude = compress_indices_set(ci, base_unextended_exclude);
         // make predictions
