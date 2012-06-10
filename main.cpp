@@ -472,7 +472,7 @@ int main() {
     int ticker = 0;
     int n = (int)test_nodes.size();
 
-    FILE *f_out = fopen("predictions.txt", "w");
+    FILE *f_out = fopen("predictions.csv", "w");
     fprintf(f_out, "source_node,destination_nodes\n");
 
     for (src = test_nodes.begin(); src != test_nodes.end(); ++src) {
