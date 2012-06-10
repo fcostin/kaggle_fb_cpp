@@ -7,7 +7,8 @@ my very own scoreboard:
         missing reverse edges       0.61525
         my submission 2             0.68837
         my submission 3             0.69000
-        ARP (quidity)         0.70336
+        my submission 4             0.69186
+        ARP (top score)             0.70336
 
 
 submission 1:
@@ -33,3 +34,7 @@ submission 3:
     truncated edges to feed into that, dont allow it to be included
     in predictions. otherwise, still uses depth 3 and restart prob 0.3,
     although with some optimisations to code for speed.
+
+submission 4:
+
+    as submission 3, but with restart prob 0.6

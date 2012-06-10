@@ -560,7 +560,7 @@ int main() {
         // 2. perform random walk with reset on the restricted graph
         vector<double> p_0 = make_initial_vector(subset, ci, *src);
 
-        double restart_prob = 0.3;
+        double restart_prob = 0.6;
         double eps = 1.0e-6;
         vector<double> p_stationary = random_walk_with_restart(subgraph, p_0, restart_prob, eps);
 
