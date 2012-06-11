@@ -8,8 +8,9 @@ my very own scoreboard:
         my submission 2             0.68837
         my submission 3             0.69000
         my submission 4             0.69186
-        ARP (top score)             0.70336
-
+        my submission 5             0.69196
+        my submission 6             0.70254
+        elrude                      0.70724
 
 submission 1:
 
@@ -18,7 +19,6 @@ submission 1:
     solely used given directed graph, didnt do anything tricky for the reverse edges
 
     got a pretty bad score, although better than the two initial benchmarks
-
 
 submission 2:
 
@@ -38,3 +38,14 @@ submission 3:
 submission 4:
 
     as submission 3, but with restart prob 0.6
+
+submission 5:
+
+    as submission 4, but with depth 4 instead of 3. very minimal improvement
+
+submission 6:
+
+    use tighter eps and also different edge weights for forward / reverse edges
+    edge weights used were
+        forward : 3.0
+        reverse : 1.0
