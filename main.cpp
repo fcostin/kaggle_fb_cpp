@@ -32,37 +32,29 @@ void init_signal_handler() {
     sigaction(SIGINT, &sig_interrupt_handler, NULL);
 }
 
-// global data
-
-static double FRACTION_LOOKUP[2048];
-
-void init_fraction_lookup() {
-    for (int i = 0; i < 2048; ++i) {
-        FRACTION_LOOKUP[i] = 1.0 / ((double) i);
-    }
-}
-
-
-
-
-
 struct Edge {
     int u, v;
-    Edge(int u, int v) : u(u), v(v) {}
+    double weight;
+    Edge(int u, int v, double weight) : u(u), v(v), weight(weight) {}
 };
 
 bool edge_compare(const Edge & a, const Edge & b) {
+    // lexical ordering on (u, v, weight)
     if (a.u < b.u) {
         return true;
     } else if (a.u > b.u) {
         return false;
+    } else if (a.v < b.v) {
+        return true;
+    } else if (a.v > b.v) {
+        return false;
     } else {
-        return (a.v < b.v);
+        return (a.weight < b.weight);
     }
 }
 
 
-vector<Edge> load_edges(const char *csv_file_name) {
+vector<Edge> load_edges(const char *csv_file_name, double weight) {
     FILE *f = fopen(csv_file_name, "r");
     size_t line_size = 512;
     char *line = (char*) malloc(sizeof(char) * line_size);
@@ -76,7 +68,7 @@ vector<Edge> load_edges(const char *csv_file_name) {
             int tokens_parsed = sscanf(line, "%d,%d\n", &u, &v);
             if (tokens_parsed == 2) {
                 // n.b. convert to 0-based indexing
-                edges.push_back(Edge(u - 1, v - 1));
+                edges.push_back(Edge(u - 1, v - 1, weight));
             }
         }
     }
@@ -130,6 +122,7 @@ struct Graph {
     vector<int> begin;
     vector<int> end;
     vector<int> value;
+    vector<double> weight;
 };
 
 Graph make_graph(int size, const vector<Edge> & edges) {
@@ -137,6 +130,7 @@ Graph make_graph(int size, const vector<Edge> & edges) {
     graph.begin.reserve(size);
     graph.end.reserve(size);
     graph.value.reserve(edges.size());
+    graph.weight.reserve(edges.size());
     
     if (edges.size() > 0) {
         int i = 0;
@@ -145,6 +139,7 @@ Graph make_graph(int size, const vector<Edge> & edges) {
         vector<Edge>::const_iterator edge;
         for (edge = edges.begin(); edge != edges.end(); ++edge) {
             graph.value[i] = edge->v;
+            graph.weight[i] = edge->weight;
             while (edge->u > prev_u) {
                 graph.end.push_back(i);
                 graph.begin.push_back(i);
@@ -242,6 +237,7 @@ vector<Edge> restrict_graph(int restricted_size,
         int j_end = graph.end[node_i];
         for (int j = j_beg; j != j_end; ++j) {
             int node_j = graph.value[j];
+            double weight_j = graph.weight[j];
             int k = index.compress[node_j];
             // truncate edge if destination node not in subgraph
             // n.b. we may get many edges from a given node u
@@ -249,10 +245,10 @@ vector<Edge> restrict_graph(int restricted_size,
             // lead to better accuracy! it certainly makes
             // the matvec operations a little more expensive.
             if (k == -1) {
-                result.push_back(Edge(i, error_node_k));
+                result.push_back(Edge(i, error_node_k, weight_j));
                 continue;
             }
-            result.push_back(Edge(i, k));
+            result.push_back(Edge(i, k, weight_j));
         }
     }
     return result;
@@ -277,9 +273,13 @@ void graph_matvec(const Graph & graph, const vector<double> & x,
         // distribute mass uniformly from node i to all neighbouring nodes k
         int j_beg = graph.begin[i];
         int j_end = graph.end[i];
-        double mass = x[i] * FRACTION_LOOKUP[j_end - j_beg];
+        double net_weight = 0.0;
         for (int j = j_beg; j < j_end; ++j) {
-            result[graph.value[j]] += mass;
+            net_weight += graph.weight[j];
+        }
+        double mass = x[i] / net_weight;
+        for (int j = j_beg; j < j_end; ++j) {
+            result[graph.value[j]] += mass * graph.weight[j];
         }
     }
 }
@@ -433,7 +433,8 @@ set<int> compress_indices_set(const CompressedIndex & ci, const set<int> & a) {
 
 
 
-vector<Edge> make_missing_reverse_edges(const vector<Edge> & edges, const Graph & graph) {
+vector<Edge> make_missing_reverse_edges(const vector<Edge> & edges, const Graph & graph,
+        double weight) {
     vector<Edge> new_edges;
     
     vector<Edge>::const_iterator i;
@@ -441,7 +442,7 @@ vector<Edge> make_missing_reverse_edges(const vector<Edge> & edges, const Graph 
         // handle special case where graph doesn't even have storage for
         // outgoing edges from node i->v
         if (graph.begin.size() <= (size_t)(i->v)) {
-            new_edges.push_back(Edge(i->v, i->u));
+            new_edges.push_back(Edge(i->v, i->u, weight));
             continue;
         }
         // linear search through outgoing edges from node i->v for
@@ -456,15 +457,16 @@ vector<Edge> make_missing_reverse_edges(const vector<Edge> & edges, const Graph 
             }
         }
         if (!found) {
-            new_edges.push_back(Edge(i->v, i->u));
+            new_edges.push_back(Edge(i->v, i->u, weight));
         }
     }
 
     return new_edges;
 }
 
-vector<Edge> extend_with_reverse_edges(const vector<Edge> & edges, const Graph & graph) {
-    vector<Edge> result = make_missing_reverse_edges(edges, graph);
+vector<Edge> extend_with_reverse_edges(const vector<Edge> & edges, const Graph & graph,
+        double weight) {
+    vector<Edge> result = make_missing_reverse_edges(edges, graph, weight);
     // concat missing reverse edges and edges
     result.insert(result.end(), edges.begin(), edges.end());
     // sort vector of edges (treating each edge as pair and sorting
@@ -492,15 +494,19 @@ struct Params {
     int bfs_depth;
     double restart_prob;
     double eps;
+    double forward_weight;
+    double reverse_weight;
 };
 
 void print_usage_and_exit() {
-    fprintf(stderr, "usage: edges.csv nodes.csv predictions.csv depth restart_prob eps\n");
+    fprintf(stderr, (
+        "usage: edges.csv nodes.csv predictions.csv depth restart_prob eps"
+        "forward_weight reverse_weight\n"));
     exit(1);
 }
 
 Params parse_params(int narg, char **argv) {
-    if (narg != 7) {
+    if (narg != 9) {
         print_usage_and_exit();
     }
     Params params;
@@ -516,12 +522,20 @@ Params parse_params(int narg, char **argv) {
     if (sscanf(argv[6], "%lf", &(params.eps)) != 1) {
         print_usage_and_exit();
     }
+    if (sscanf(argv[7], "%lf", &(params.forward_weight)) != 1) {
+        print_usage_and_exit();
+    }
+    if (sscanf(argv[8], "%lf", &(params.reverse_weight)) != 1) {
+        print_usage_and_exit();
+    }
     printf("\tedges_file_name := \"%s\"\n", params.edges_file_name);
     printf("\tnodes_file_name := \"%s\"\n", params.nodes_file_name);
     printf("\tpredictions_file_name := \"%s\"\n", params.predictions_file_name);
     printf("\tbfs_depth := %d\n", params.bfs_depth);
     printf("\trestart_prob := %e\n", params.restart_prob);
     printf("\teps := %e\n", params.eps);
+    printf("\tforward_weight := %e\n", params.forward_weight);
+    printf("\treverse_weight := %e\n", params.reverse_weight);
     return params;
 }
 
@@ -535,11 +549,8 @@ int main(int narg, char **argv) {
     // after hitting ctrl+C so we still get profiling information
     init_signal_handler();
 
-    // initialise static lookup table, used in graph_matvec
-    init_fraction_lookup();
-
     printf("loading edges from \"%s\"\n", params.edges_file_name);
-    vector<Edge> edges = load_edges(params.edges_file_name);
+    vector<Edge> edges = load_edges(params.edges_file_name, params.forward_weight);
     printf("\tok\n");
 
     int m = max_node(edges);
@@ -554,7 +565,7 @@ int main(int narg, char **argv) {
     printf("built graph\n");
 
     printf("building extended edges\n");
-    vector<Edge> ext_edges = extend_with_reverse_edges(edges, graph);
+    vector<Edge> ext_edges = extend_with_reverse_edges(edges, graph, params.reverse_weight);
     printf("ok\n");
 
     // n.b. adding edges does not change the nodes, so
