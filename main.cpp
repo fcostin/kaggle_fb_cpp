@@ -485,16 +485,61 @@ void print_graph_info(const Graph & graph) {
     printf("max num neighbours : %d\n", sup);
 }
 
+struct Params {
+    char * edges_file_name;
+    char * nodes_file_name;
+    char * predictions_file_name;
+    int bfs_depth;
+    double restart_prob;
+    double eps;
+};
 
-int main() {
+void print_usage_and_exit() {
+    fprintf(stderr, "usage: edges.csv nodes.csv predictions.csv depth restart_prob eps\n");
+    exit(1);
+}
 
+Params parse_params(int narg, char **argv) {
+    if (narg != 7) {
+        print_usage_and_exit();
+    }
+    Params params;
+    params.edges_file_name = argv[1];
+    params.nodes_file_name = argv[2];
+    params.predictions_file_name = argv[3];
+    if (sscanf(argv[4], "%d", &(params.bfs_depth)) != 1) {
+        print_usage_and_exit();
+    }
+    if (sscanf(argv[5], "%lf", &(params.restart_prob)) != 1) {
+        print_usage_and_exit();
+    }
+    if (sscanf(argv[6], "%lf", &(params.eps)) != 1) {
+        print_usage_and_exit();
+    }
+    printf("\tedges_file_name := \"%s\"\n", params.edges_file_name);
+    printf("\tnodes_file_name := \"%s\"\n", params.nodes_file_name);
+    printf("\tpredictions_file_name := \"%s\"\n", params.predictions_file_name);
+    printf("\tbfs_depth := %d\n", params.bfs_depth);
+    printf("\trestart_prob := %e\n", params.restart_prob);
+    printf("\teps := %e\n", params.eps);
+    return params;
+}
+
+
+int main(int narg, char **argv) {
+
+    // parse command line arguments, exit with error message on failure
+    Params params = parse_params(narg, argv);
+
+    // initialise signal handler, useful for gracefully exiting
+    // after hitting ctrl+C so we still get profiling information
     init_signal_handler();
 
+    // initialise static lookup table, used in graph_matvec
     init_fraction_lookup();
 
-    const char * csv_file_name = "../train.csv";
-    printf("loading edges from \"%s\"\n", csv_file_name);
-    vector<Edge> edges = load_edges(csv_file_name);
+    printf("loading edges from \"%s\"\n", params.edges_file_name);
+    vector<Edge> edges = load_edges(params.edges_file_name);
     printf("\tok\n");
 
     int m = max_node(edges);
@@ -518,13 +563,14 @@ int main() {
 
     print_graph_info(ext_graph);
 
-    const char * node_file_name = "../test.csv";
-    printf("loading nodes from \"%s\"\n", node_file_name);
-    vector<int> test_nodes = load_nodes(node_file_name);
+    printf("loading nodes from \"%s\"\n", params.nodes_file_name);
+    vector<int> test_nodes = load_nodes(params.nodes_file_name);
     printf("\tok\n");
 
     vector<int>::const_iterator src;
-    int depth = 3;
+    int depth = params.bfs_depth;
+    double restart_prob = params.restart_prob;
+    double eps = params.eps;
     int ticker = 0;
     int n = (int)test_nodes.size();
 
@@ -532,7 +578,7 @@ int main() {
     // lookup tables) to hold reindexing scheme
     CompressedIndex ci = make_compressed_index(m + 1);
 
-    FILE *f_out = fopen("predictions.csv", "w");
+    FILE *f_out = fopen(params.predictions_file_name, "w");
     fprintf(f_out, "source_node,destination_nodes\n");
 
     for (src = test_nodes.begin(); src != test_nodes.end(); ++src) {
@@ -560,8 +606,6 @@ int main() {
         // 2. perform random walk with reset on the restricted graph
         vector<double> p_0 = make_initial_vector(subset, ci, *src);
 
-        double restart_prob = 0.6;
-        double eps = 1.0e-6;
         vector<double> p_stationary = random_walk_with_restart(subgraph, p_0, restart_prob, eps);
 
         double mass_error = p_stationary[ci.compress[error_node]];
