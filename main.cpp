@@ -501,7 +501,7 @@ struct Params {
 void print_usage_and_exit() {
     fprintf(stderr, (
         "usage: edges.csv nodes.csv predictions.csv depth restart_prob eps"
-        "forward_weight reverse_weight\n"));
+        " forward_weight reverse_weight\n"));
     exit(1);
 }
 
